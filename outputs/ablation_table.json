@@ -1,0 +1,22 @@
+{
+  "LLM zero-shot (Mistral)": {
+    "spearman_rho": 0.2329,
+    "acc_within_1": 84.3,
+    "weight_pct": 1.7
+  },
+  "Semantic clustering (UMAP+HDBSCAN)": {
+    "spearman_rho": 0.4261,
+    "acc_within_1": 89.98,
+    "weight_pct": 70.8
+  },
+  "RT regression residual (XGBoost)": {
+    "spearman_rho": 0.2133,
+    "acc_within_1": 83.18,
+    "weight_pct": 21.5
+  },
+  "Rule-based NLP": {
+    "spearman_rho": 0.3351,
+    "acc_within_1": 86.12,
+    "weight_pct": 6.0
+  }
+}

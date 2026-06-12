@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+venv/
+.venv/
+
+# Data & model artifacts (too large for git)
+models/**/*.safetensors
+models/**/*.bin
+models/**/*.pt
+models/**/*.npy
+models/**/*.pkl
+models/**/checkpoints/
+outputs/*.npy
+outputs/*.pkl
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+*.swp

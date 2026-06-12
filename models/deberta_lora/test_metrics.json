@@ -1,0 +1,21 @@
+{
+  "accuracy": 0.9205,
+  "macro_f1": 0.8327,
+  "recall_consistent": 0.9289,
+  "recall_mismatch": 0.8559,
+  "best_threshold": 0.69,
+  "confusion_matrix": [
+    [
+      1645,
+      126
+    ],
+    [
+      33,
+      196
+    ]
+  ],
+  "model": "microsoft/deberta-v3-small",
+  "lora_r": 16,
+  "lora_alpha": 32,
+  "best_epoch": 6
+}

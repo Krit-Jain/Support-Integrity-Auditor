@@ -1,0 +1,128 @@
+{
+  "score": "7/10",
+  "score_pct": 70.0,
+  "bonus_earned": true,
+  "threshold": 0.69,
+  "results": [
+    {
+      "ticket_id": "ADV-001",
+      "attack_type": "semantic_disguise",
+      "attack_desc": "Critical system failure described in calm, polite language. No escalation keywords. Keyword system rates as routine. Model must detect cannot-access + entire-team pattern.",
+      "category": "Technical",
+      "assigned_priority": "Low",
+      "true_label": 1,
+      "predicted": 1,
+      "confidence": 0.9495,
+      "correct": true,
+      "true_mismatch_type": "Hidden Crisis"
+    },
+    {
+      "ticket_id": "ADV-002",
+      "attack_type": "negation_injection",
+      "attack_desc": "Complete API failure framed with 'nothing serious' language. Keyword system misses the severity. Model detects API down plus all-customers-affected context.",
+      "category": "Technical",
+      "assigned_priority": "Low",
+      "true_label": 1,
+      "predicted": 1,
+      "confidence": 0.9618,
+      "correct": true,
+      "true_mismatch_type": "Hidden Crisis"
+    },
+    {
+      "ticket_id": "ADV-003",
+      "attack_type": "negation_injection",
+      "attack_desc": "Real system outage described using 'no problem' framing. Keyword system misses it. Model detects team-wide outage and cannot-process-orders despite downplaying language.",
+      "category": "Technical",
+      "assigned_priority": "Low",
+      "true_label": 1,
+      "predicted": 1,
+      "confidence": 0.9735,
+      "correct": true,
+      "true_mismatch_type": "Hidden Crisis"
+    },
+    {
+      "ticket_id": "ADV-004",
+      "attack_type": "category_laundering",
+      "attack_desc": "Active fraud attack with unauthorized transactions filed as High instead of Critical. Keyword system accepts High. Model detects fraud + stolen + unauthorized at High priority which should be Critical.",
+      "category": "Fraud",
+      "assigned_priority": "High",
+      "true_label": 1,
+      "predicted": 0,
+      "confidence": 0.1345,
+      "correct": false,
+      "true_mismatch_type": "Hidden Crisis"
+    },
+    {
+      "ticket_id": "ADV-005",
+      "attack_type": "priority_laundering_downward",
+      "attack_desc": "Data integrity issue affecting 3000 records described in calm technical language assigned Low. Model detects scale of impact and data-loss severity.",
+      "category": "Technical",
+      "assigned_priority": "Low",
+      "true_label": 1,
+      "predicted": 1,
+      "confidence": 0.8179,
+      "correct": true,
+      "true_mismatch_type": "Hidden Crisis"
+    },
+    {
+      "ticket_id": "ADV-006",
+      "attack_type": "correct_critical_genuine",
+      "attack_desc": "Genuinely Critical ticket correctly labelled. Payment gateway fully down, all customers affected, revenue loss per minute. True Consistent case \u2014 model should agree.",
+      "category": "Technical",
+      "assigned_priority": "Critical",
+      "true_label": 0,
+      "predicted": 0,
+      "confidence": 0.0622,
+      "correct": true,
+      "true_mismatch_type": "Consistent"
+    },
+    {
+      "ticket_id": "ADV-007",
+      "attack_type": "false_alarm_technical",
+      "attack_desc": "Minor display glitch assigned Critical by an over-eager agent. Keyword system accepts Critical. Model detects display-glitch content does not warrant Critical assignment \u2014 False Alarm.",
+      "category": "Technical",
+      "assigned_priority": "Critical",
+      "true_label": 1,
+      "predicted": 0,
+      "confidence": 0.0238,
+      "correct": false,
+      "true_mismatch_type": "False Alarm"
+    },
+    {
+      "ticket_id": "ADV-008",
+      "attack_type": "fraud_calm_language",
+      "attack_desc": "Phishing attack against corporate accounts described in dry, matter-of-fact language at High instead of Critical. Keyword system sees High as reasonable. Model detects phishing + credentials + multiple accounts.",
+      "category": "Fraud",
+      "assigned_priority": "High",
+      "true_label": 1,
+      "predicted": 0,
+      "confidence": 0.2031,
+      "correct": false,
+      "true_mismatch_type": "Hidden Crisis"
+    },
+    {
+      "ticket_id": "ADV-009",
+      "attack_type": "correct_low_genuine",
+      "attack_desc": "Genuinely Low priority ticket correctly labelled. Timezone question with no urgency. True Consistent case.",
+      "category": "General Inquiry",
+      "assigned_priority": "Low",
+      "true_label": 0,
+      "predicted": 0,
+      "confidence": 0.0645,
+      "correct": true,
+      "true_mismatch_type": "Consistent"
+    },
+    {
+      "ticket_id": "ADV-010",
+      "attack_type": "paraphrase_attack",
+      "attack_desc": "Team-wide system failure without failure keywords \u2014 uses 'stopped responding' and 'halted'. 30 users blocked, operations halted, assigned Low. Model detects scale and operational impact.",
+      "category": "Technical",
+      "assigned_priority": "Low",
+      "true_label": 1,
+      "predicted": 1,
+      "confidence": 0.9515,
+      "correct": true,
+      "true_mismatch_type": "Hidden Crisis"
+    }
+  ]
+}

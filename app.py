@@ -536,3 +536,153 @@ def render_single_ticket_tab(tokenizer, model, threshold, device):
             "severity based on content, category, resolution time, and satisfaction "
             "signals. No evidence dossier is generated for consistent tickets."
         )
+        
+# ══════════════════════════════════════════════════════════════════
+# Batch CSV Tab
+# ══════════════════════════════════════════════════════════════════
+
+REQUIRED_COLUMNS = [
+    'Ticket_ID', 'Ticket_Subject', 'Ticket_Description', 'Issue_Category',
+    'Priority_Level', 'Ticket_Channel', 'Resolution_Time_Hours',
+    'Satisfaction_Score'
+]
+
+
+def render_batch_tab(tokenizer, model, threshold, device):
+    st.header("Batch CSV Analysis")
+    st.markdown(
+        "Upload a CSV of support tickets. SIA will run inference on every row "
+        "and generate evidence dossiers for all flagged mismatches."
+    )
+
+    with st.expander("Required CSV columns"):
+        st.code(", ".join(REQUIRED_COLUMNS))
+        st.caption(
+            "Additional columns (Customer_Name, Customer_Email, Submission_Date, "
+            "Assigned_Agent) are allowed but ignored by the model."
+        )
+
+    uploaded_file = st.file_uploader("Upload tickets CSV", type=["csv"])
+
+    if uploaded_file is None:
+        return
+
+    try:
+        df = pd.read_csv(uploaded_file)
+    except Exception as e:
+        st.error(f"Could not read CSV: {e}")
+        return
+
+    missing_cols = [c for c in REQUIRED_COLUMNS if c not in df.columns]
+    if missing_cols:
+        st.error(f"CSV is missing required columns: {missing_cols}")
+        return
+
+    for col in ['Ticket_Subject', 'Ticket_Description', 'Issue_Category',
+                'Ticket_Channel', 'Priority_Level']:
+        df[col] = df[col].astype(str)
+
+    st.success(f"Loaded {len(df):,} tickets")
+    st.dataframe(df.head(5), use_container_width=True)
+
+    max_rows = st.slider(
+        "Number of rows to process",
+        min_value=10, max_value=min(len(df), 5000),
+        value=min(len(df), 500), step=10,
+        help="Limit rows for faster results in this demo. "
+             "Use predict.py for full-dataset batch inference."
+    )
+
+    if not st.button("Run Batch Inference", type="primary"):
+        return
+
+    df_subset = df.head(max_rows).copy()
+
+    with st.spinner(f"Running inference on {len(df_subset):,} tickets..."):
+        texts = df_subset.apply(lambda r: build_input_text(r), axis=1).tolist()
+        probs = predict_batch(texts, tokenizer, model, device)
+
+    df_subset['mismatch_probability'] = probs
+    df_subset['predicted_label']      = (probs >= threshold).astype(int)
+    df_subset['predicted_verdict']    = df_subset['predicted_label'].map(
+        {0: 'Consistent', 1: 'Mismatch'})
+
+    n_flagged = int(df_subset['predicted_label'].sum())
+
+    st.divider()
+
+    m1, m2, m3 = st.columns(3)
+    with m1:
+        st.metric("Tickets Processed", f"{len(df_subset):,}")
+    with m2:
+        st.metric("Flagged as Mismatch", f"{n_flagged:,}")
+    with m3:
+        st.metric("Mismatch Rate", f"{n_flagged / len(df_subset) * 100:.1f}%")
+
+    # ── Predictions table ──
+    st.markdown("#### Predictions")
+    display_cols = ['Ticket_ID', 'Priority_Level', 'Issue_Category',
+                     'mismatch_probability', 'predicted_verdict']
+    st.dataframe(
+        df_subset[display_cols].sort_values('mismatch_probability', ascending=False),
+        use_container_width=True,
+        column_config={
+            "mismatch_probability": st.column_config.ProgressColumn(
+                "Mismatch Probability", min_value=0, max_value=1, format="%.3f"
+            )
+        }
+    )
+
+    csv_bytes = df_subset[display_cols].to_csv(index=False).encode('utf-8')
+    st.download_button(
+        "Download predictions.csv",
+        data=csv_bytes,
+        file_name="predictions.csv",
+        mime="text/csv"
+    )
+
+    # ── Dossiers for flagged tickets ──
+    flagged = df_subset[df_subset['predicted_label'] == 1]
+
+    if len(flagged) == 0:
+        st.info("No mismatches detected in this batch.")
+        return
+
+    with st.spinner(f"Generating dossiers for {len(flagged):,} flagged tickets..."):
+        dossiers = [
+            generate_dossier(row, row['mismatch_probability'], threshold)
+            for _, row in flagged.iterrows()
+        ]
+
+    st.markdown(f"#### Evidence Dossiers ({len(dossiers):,} flagged tickets)")
+
+    dossier_json = json.dumps(dossiers, indent=2)
+    st.download_button(
+        "Download dossiers.json",
+        data=dossier_json,
+        file_name="dossiers.json",
+        mime="application/json"
+    )
+
+    # Show first few dossiers inline, rest available via JSON download
+    preview_n = min(5, len(dossiers))
+    st.caption(f"Showing first {preview_n} of {len(dossiers):,} dossiers — "
+               f"full set available in the JSON download above.")
+
+    for dossier in dossiers[:preview_n]:
+        with st.expander(
+            f"**{dossier['ticket_id']}** — {dossier['assigned_priority']} → "
+            f"{dossier['inferred_severity']} ({dossier['mismatch_type']}) "
+            f"| confidence {dossier['confidence']:.2f}"
+        ):
+            st.markdown(f"**Severity Delta:** {dossier['severity_delta']}")
+
+            for ev in dossier['feature_evidence']:
+                weight = ev.get('weight', 0)
+                sign = "🔺" if weight > 0 else "🔻" if weight < 0 else "▪️"
+                interp = ev.get('interpretation', f"Matched: \"{ev.get('value','')}\"")
+                st.markdown(f"{sign} **{ev['signal']}** (`{ev['source_field']}`, "
+                             f"weight {weight:+.2f}) — {interp}")
+
+            st.markdown("**Constraint Analysis:**")
+            st.info(dossier['constraint_analysis'])

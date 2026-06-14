@@ -403,3 +403,136 @@ def generate_dossier(row: dict, prob: float, threshold: float) -> dict:
         "feature_evidence":    feature_evidence,
         "constraint_analysis": build_constraint_analysis(row, inferred, mismatch_type, feature_evidence)
     }
+
+# ══════════════════════════════════════════════════════════════════
+# Single-Ticket Tab
+# ══════════════════════════════════════════════════════════════════
+
+def render_single_ticket_tab(tokenizer, model, threshold, device):
+    st.header("Single Ticket Analysis")
+    st.markdown(
+        "Enter a ticket's details below. SIA will predict whether the "
+        "assigned priority matches the ticket's true severity, and — if a "
+        "mismatch is detected — generate a full Evidence Dossier."
+    )
+
+    with st.form("single_ticket_form"):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            ticket_id = st.text_input("Ticket ID", value="TKT-DEMO-001")
+            subject = st.text_input(
+                "Ticket Subject",
+                value="Question about some unusual activity on my account"
+            )
+            description = st.text_area(
+                "Ticket Description",
+                height=150,
+                value=("I noticed some transactions on my account that I do not "
+                       "recognize. My login credentials may have been accessed by "
+                       "someone else. I have changed my password but wanted to let "
+                       "you know. Please look into this when you get a chance.")
+            )
+
+        with col2:
+            issue_category = st.selectbox("Issue Category", CATEGORIES, index=2)
+            priority_level = st.selectbox("Assigned Priority", PRIORITIES, index=0)
+            ticket_channel = st.selectbox("Ticket Channel", CHANNELS, index=1)
+            resolution_time = st.number_input(
+                "Resolution Time (hours)", min_value=1, max_value=200, value=48
+            )
+            satisfaction_score = st.slider(
+                "Satisfaction Score", min_value=1, max_value=5, value=3
+            )
+
+        submitted = st.form_submit_button("Analyze Ticket", type="primary")
+
+    if not submitted:
+        return
+
+    if not subject.strip() or not description.strip():
+        st.warning("Please provide both a subject and description.")
+        return
+
+    row = {
+        "Ticket_ID":             ticket_id,
+        "Ticket_Subject":        subject,
+        "Ticket_Description":    description,
+        "Issue_Category":        issue_category,
+        "Priority_Level":        priority_level,
+        "Ticket_Channel":        ticket_channel,
+        "Resolution_Time_Hours": resolution_time,
+        "Satisfaction_Score":    satisfaction_score,
+    }
+
+    with st.spinner("Running inference..."):
+        text = build_input_text(row)
+        prob = predict_batch([text], tokenizer, model, device)[0]
+        predicted_label = int(prob >= threshold)
+
+    st.divider()
+
+    # ── Verdict ──
+    verdict_col, conf_col, thresh_col = st.columns(3)
+    with verdict_col:
+        if predicted_label == 1:
+            st.error("**Verdict: MISMATCH**")
+        else:
+            st.success("**Verdict: CONSISTENT**")
+    with conf_col:
+        st.metric("Mismatch Probability", f"{prob:.1%}")
+    with thresh_col:
+        st.metric("Decision Threshold", f"{threshold:.2f}")
+
+    # ── Dossier (only for mismatches) ──
+    if predicted_label == 1:
+        dossier = generate_dossier(row, prob, threshold)
+
+        st.subheader("Evidence Dossier")
+
+        d1, d2, d3, d4 = st.columns(4)
+        with d1:
+            st.metric("Assigned Priority", dossier['assigned_priority'])
+        with d2:
+            st.metric("Inferred Severity", dossier['inferred_severity'])
+        with d3:
+            mtype = dossier['mismatch_type']
+            st.metric("Mismatch Type", mtype,
+                      help="Hidden Crisis = under-prioritised | False Alarm = over-prioritised")
+        with d4:
+            st.metric("Severity Delta", dossier['severity_delta'].split(' ')[0])
+
+        st.markdown(f"**{dossier['severity_delta']}**")
+
+        st.markdown("#### Feature Evidence")
+        st.caption("Every item below is traced to a specific field in the input ticket — "
+                   "no fabricated or unverifiable claims.")
+
+        for ev in dossier['feature_evidence']:
+            weight = ev.get('weight', 0)
+            sign = "🔺" if weight > 0 else "🔻" if weight < 0 else "▪️"
+            with st.container(border=True):
+                cols = st.columns([1, 3, 1])
+                with cols[0]:
+                    st.markdown(f"{sign} **{ev['signal']}**")
+                    st.caption(f"source: `{ev['source_field']}`")
+                with cols[1]:
+                    if 'interpretation' in ev:
+                        st.write(ev['interpretation'])
+                    else:
+                        st.write(f"Matched: \"{ev['value']}\" ({ev.get('type', '')})")
+                with cols[2]:
+                    st.metric("Weight", f"{weight:+.2f}", label_visibility="collapsed")
+
+        st.markdown("#### Constraint Analysis")
+        st.info(dossier['constraint_analysis'])
+
+        with st.expander("Raw JSON dossier"):
+            st.json(dossier)
+
+    else:
+        st.markdown(
+            "This ticket's assigned priority is **consistent** with its inferred "
+            "severity based on content, category, resolution time, and satisfaction "
+            "signals. No evidence dossier is generated for consistent tickets."
+        )

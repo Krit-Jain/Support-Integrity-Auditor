@@ -6,17 +6,15 @@ __pycache__/
 venv/
 .venv/
 
-# Data & model artifacts (too large for git)
-models/**/*.safetensors
-models/**/*.bin
-models/**/*.pt
-models/**/*.npy
-models/**/*.pkl
-models/**/checkpoints/
-outputs/*.npy
-outputs/*.pkl
+# Raw dataset (place customer_support_tickets.csv in data/ — see README)
+data/*.csv
 
-# Notebooks checkpoints
+# Large intermediate artifacts — regenerable via notebook/train_pipeline.py,
+# not required by predict.py or the Streamlit app
+outputs/embeddings_reduced.npy
+outputs/cluster_labels.npy
+
+# Notebook checkpoints
 .ipynb_checkpoints/
 
 # OS

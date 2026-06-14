@@ -20,6 +20,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from peft import PeftModel
+from collections import Counter
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -686,3 +687,349 @@ def render_batch_tab(tokenizer, model, threshold, device):
 
             st.markdown("**Constraint Analysis:**")
             st.info(dossier['constraint_analysis'])
+
+# ══════════════════════════════════════════════════════════════════
+# Dashboard Tab
+# ══════════════════════════════════════════════════════════════════
+
+DOSSIERS_PATH = Path("outputs/dossiers.json")
+PSEUDOLABELS_PATH = Path("outputs/tickets_pseudolabeled.csv")
+
+
+@st.cache_data(show_spinner="Loading dashboard data...")
+def load_dashboard_data():
+    """Load precomputed dossiers and pseudo-labelled dataset for dashboard charts."""
+    dossiers = None
+    pseudo_df = None
+
+    if DOSSIERS_PATH.exists():
+        with open(DOSSIERS_PATH) as f:
+            dossiers = json.load(f)
+
+    if PSEUDOLABELS_PATH.exists():
+        pseudo_df = pd.read_csv(PSEUDOLABELS_PATH)
+
+    return dossiers, pseudo_df
+
+
+def render_dashboard_tab():
+    st.header("Priority Mismatch Dashboard")
+    st.markdown(
+        "Overview of mismatch detection results across the full ticket dataset "
+        "(precomputed via `notebook.ipynb` / `train_pipeline.py`)."
+    )
+
+    dossiers, pseudo_df = load_dashboard_data()
+
+    if dossiers is None or pseudo_df is None:
+        st.warning(
+            "Dashboard data not found. Run `notebook.ipynb` (Stages 1-3) or "
+            "`train_pipeline.py` to generate `outputs/tickets_pseudolabeled.csv` "
+            "and `outputs/dossiers.json`."
+        )
+        return
+
+    total_tickets = len(pseudo_df)
+    total_flagged = len(dossiers)
+    n_consistent  = total_tickets - total_flagged
+
+    hc_count = sum(1 for d in dossiers if d['mismatch_type'] == 'Hidden Crisis')
+    fa_count = sum(1 for d in dossiers if d['mismatch_type'] == 'False Alarm')
+
+    # ── Top-level metrics ──
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.metric("Total Tickets", f"{total_tickets:,}")
+    with m2:
+        st.metric("Flagged Mismatches", f"{total_flagged:,}",
+                   f"{total_flagged/total_tickets*100:.1f}%")
+    with m3:
+        st.metric("Hidden Crisis", f"{hc_count:,}",
+                   help="Under-prioritised — true severity exceeds assigned priority")
+    with m4:
+        st.metric("False Alarm", f"{fa_count:,}",
+                   help="Over-prioritised — true severity is below assigned priority")
+
+    st.divider()
+
+    col1, col2 = st.columns(2)
+
+    # ── Chart 1: Consistent vs Mismatch ──
+    with col1:
+        st.markdown("#### Overall Verdict Distribution")
+        verdict_df = pd.DataFrame({
+            'Verdict': ['Consistent', 'Mismatch'],
+            'Count':   [n_consistent, total_flagged]
+        })
+        fig = px.pie(
+            verdict_df, names='Verdict', values='Count',
+            color='Verdict',
+            color_discrete_map={'Consistent': '#5e9e6e', 'Mismatch': '#c44e52'},
+            hole=0.45
+        )
+        fig.update_traces(textinfo='label+percent+value')
+        fig.update_layout(showlegend=False, margin=dict(t=10, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+
+    # ── Chart 2: Mismatch Type breakdown ──
+    with col2:
+        st.markdown("#### Mismatch Type Breakdown")
+        type_df = pd.DataFrame({
+            'Type':  ['Hidden Crisis', 'False Alarm'],
+            'Count': [hc_count, fa_count]
+        })
+        fig = px.bar(
+            type_df, x='Type', y='Count', color='Type',
+            color_discrete_map={'Hidden Crisis': '#c44e52', 'False Alarm': '#e09a3c'},
+            text='Count'
+        )
+        fig.update_traces(textposition='outside')
+        fig.update_layout(showlegend=False, margin=dict(t=10, b=10),
+                          yaxis_title="", xaxis_title="")
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.divider()
+
+    col3, col4 = st.columns(2)
+
+    # ── Chart 3: Mismatches by category ──
+    with col3:
+        st.markdown("#### Mismatches by Issue Category")
+        cat_counts = pd.DataFrame([
+            {'Category': d['assigned_priority'], 'Type': d['mismatch_type']}
+            for d in dossiers
+        ])
+        # Pull category from the original df via ticket_id join for accuracy
+        dossier_ids = [d['ticket_id'] for d in dossiers]
+        dossier_types = {d['ticket_id']: d['mismatch_type'] for d in dossiers}
+
+        flagged_pseudo = pseudo_df[pseudo_df['Ticket_ID'].isin(dossier_ids)].copy()
+        flagged_pseudo['mismatch_type'] = flagged_pseudo['Ticket_ID'].map(dossier_types)
+
+        cat_type_counts = (flagged_pseudo.groupby(['Issue_Category', 'mismatch_type'])
+                           .size().reset_index(name='Count'))
+
+        fig = px.bar(
+            cat_type_counts, x='Issue_Category', y='Count', color='mismatch_type',
+            color_discrete_map={'Hidden Crisis': '#c44e52', 'False Alarm': '#e09a3c'},
+            barmode='stack'
+        )
+        fig.update_layout(margin=dict(t=10, b=10), xaxis_title="", legend_title="")
+        st.plotly_chart(fig, use_container_width=True)
+
+    # ── Chart 4: Top contributing signals ──
+    with col4:
+        st.markdown("#### Top Contributing Evidence Signals")
+        st.caption("Frequency of each evidence signal type across all flagged dossiers")
+
+        signal_counts = Counter()
+        for d in dossiers:
+            for ev in d['feature_evidence']:
+                signal_counts[ev['signal']] += 1
+
+        signal_df = pd.DataFrame(
+            signal_counts.most_common(), columns=['Signal', 'Count']
+        )
+        fig = px.bar(
+            signal_df, x='Count', y='Signal', orientation='h',
+            color='Count', color_continuous_scale='Blues'
+        )
+        fig.update_layout(margin=dict(t=10, b=10), yaxis_title="",
+                          showlegend=False, coloraxis_showscale=False)
+        fig.update_yaxes(categoryorder='total ascending')
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.divider()
+
+    # ── Chart 5: Confidence distribution ──
+    st.markdown("#### Confidence Distribution of Flagged Tickets")
+    conf_values = [d['confidence'] for d in dossiers]
+    fig = px.histogram(
+        x=conf_values, nbins=30,
+        labels={'x': 'Mismatch Confidence', 'y': 'Count'},
+        color_discrete_sequence=['#5b8fc9']
+    )
+    fig.add_vline(x=0.69, line_dash="dash", line_color="#c44e52",
+                   annotation_text="Decision threshold (0.69)")
+    fig.update_layout(margin=dict(t=10, b=10), bargap=0.05)
+    st.plotly_chart(fig, use_container_width=True)
+
+ # ══════════════════════════════════════════════════════════════════
+# Severity Delta Heatmap Tab
+# ══════════════════════════════════════════════════════════════════
+
+def render_heatmap_tab():
+    st.header("Severity Delta Heatmap")
+    st.markdown(
+        "Average severity delta (`inferred_severity − assigned_priority`) across "
+        "**Issue Category × Ticket Channel**. Positive values (red) indicate "
+        "**Hidden Crisis** zones — under-prioritised tickets. Negative values "
+        "(blue) indicate **False Alarm** zones — over-prioritised tickets."
+    )
+
+    dossiers, pseudo_df = load_dashboard_data()
+
+    if dossiers is None or pseudo_df is None:
+        st.warning(
+            "Dashboard data not found. Run `notebook.ipynb` (Stages 1-3) or "
+            "`train_pipeline.py` to generate `outputs/tickets_pseudolabeled.csv` "
+            "and `outputs/dossiers.json`."
+        )
+        return
+
+    # ── Build a per-ticket severity delta table ──
+    # Flagged tickets get their dossier's severity_delta_value;
+    # Consistent tickets get delta = 0 (by definition).
+    def parse_delta(delta_str):
+        """Extract integer delta from strings like '+2 (under-prioritised by 2 levels)'
+        or '-1 (over-prioritised by 1 level)' or '0 (borderline mismatch...)'."""
+        match = re.match(r'^([+-]?\d+)', delta_str)
+        return int(match.group(1)) if match else 0
+
+    dossier_deltas = {d['ticket_id']: parse_delta(d['severity_delta']) for d in dossiers}
+
+    df = pseudo_df[['Ticket_ID', 'Issue_Category', 'Ticket_Channel']].copy()
+    df['severity_delta'] = df['Ticket_ID'].map(dossier_deltas).fillna(0).astype(int)
+
+    # ── Heatmap 1: Mean severity delta ──
+    st.markdown("#### Mean Severity Delta")
+
+    pivot_mean = df.pivot_table(
+        index='Issue_Category', columns='Ticket_Channel',
+        values='severity_delta', aggfunc='mean'
+    ).reindex(index=CATEGORIES, columns=CHANNELS)
+
+    fig = px.imshow(
+        pivot_mean,
+        text_auto='.2f',
+        color_continuous_scale='RdBu_r',
+        color_continuous_midpoint=0,
+        aspect='auto',
+        labels=dict(x="Ticket Channel", y="Issue Category", color="Mean Δ severity")
+    )
+    fig.update_layout(margin=dict(t=10, b=10))
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.caption(
+        "Red cells: tickets in this category+channel combination tend to be "
+        "**under-prioritised** (Hidden Crisis). Blue cells: tend to be "
+        "**over-prioritised** (False Alarm). White/neutral: largely consistent."
+    )
+
+    st.divider()
+
+    col1, col2 = st.columns(2)
+
+    # ── Heatmap 2: Mismatch rate ──
+    with col1:
+        st.markdown("#### Mismatch Rate (%)")
+
+        df['is_mismatch'] = (df['severity_delta'] != 0).astype(int)
+        pivot_rate = df.pivot_table(
+            index='Issue_Category', columns='Ticket_Channel',
+            values='is_mismatch', aggfunc='mean'
+        ).reindex(index=CATEGORIES, columns=CHANNELS) * 100
+
+        fig = px.imshow(
+            pivot_rate,
+            text_auto='.1f',
+            color_continuous_scale='Oranges',
+            aspect='auto',
+            labels=dict(x="Ticket Channel", y="Issue Category", color="Mismatch %")
+        )
+        fig.update_layout(margin=dict(t=10, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+
+    # ── Heatmap 3: Ticket volume ──
+    with col2:
+        st.markdown("#### Ticket Volume")
+
+        pivot_count = df.pivot_table(
+            index='Issue_Category', columns='Ticket_Channel',
+            values='Ticket_ID', aggfunc='count'
+        ).reindex(index=CATEGORIES, columns=CHANNELS)
+
+        fig = px.imshow(
+            pivot_count,
+            text_auto=True,
+            color_continuous_scale='Blues',
+            aspect='auto',
+            labels=dict(x="Ticket Channel", y="Issue Category", color="Tickets")
+        )
+        fig.update_layout(margin=dict(t=10, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.divider()
+
+    # ── Drill-down table ──
+    st.markdown("#### Drill-down: Category × Channel Detail")
+
+    detail = df.groupby(['Issue_Category', 'Ticket_Channel']).agg(
+        total_tickets=('Ticket_ID', 'count'),
+        mismatches=('is_mismatch', 'sum'),
+        mean_delta=('severity_delta', 'mean'),
+    ).reset_index()
+    detail['mismatch_rate'] = (detail['mismatches'] / detail['total_tickets'] * 100).round(1)
+    detail['mean_delta'] = detail['mean_delta'].round(3)
+    detail = detail.sort_values('mismatch_rate', ascending=False)
+
+    st.dataframe(
+        detail,
+        use_container_width=True,
+        column_config={
+            "Issue_Category": "Category",
+            "Ticket_Channel": "Channel",
+            "total_tickets": "Total Tickets",
+            "mismatches": "Mismatches",
+            "mean_delta": st.column_config.NumberColumn("Mean Δ Severity", format="%.3f"),
+            "mismatch_rate": st.column_config.ProgressColumn(
+                "Mismatch Rate (%)", min_value=0, max_value=100, format="%.1f%%"
+            ),
+        },
+        hide_index=True,
+    )
+
+# ══════════════════════════════════════════════════════════════════
+# Main Layout
+# ══════════════════════════════════════════════════════════════════
+
+def main():
+    st.title("🛡️ SIA — Support Integrity Auditor")
+    st.caption(
+        "Detecting priority mismatches in CRM support tickets via "
+        "DeBERTa-v3-small + LoRA, with hallucination-free evidence dossiers."
+    )
+
+    tokenizer, model, threshold, device = load_model()
+
+    with st.sidebar:
+        st.markdown("### Model Info")
+        st.metric("Device", device.upper())
+        st.metric("Decision Threshold", f"{threshold:.2f}")
+        st.markdown("---")
+        st.markdown(
+            "**SIA** fuses 4 independent signals to generate pseudo-labels, "
+            "fine-tunes DeBERTa-v3-small with LoRA, and produces structured, "
+            "traceable evidence dossiers for flagged mismatches."
+        )
+        st.markdown("[View on GitHub](#)")
+
+    tab1, tab2, tab3, tab4 = st.tabs(
+        ["🎫 Single Ticket", "📊 Batch CSV", "📈 Dashboard", "🔥 Severity Heatmap"]
+    )
+
+    with tab1:
+        render_single_ticket_tab(tokenizer, model, threshold, device)
+
+    with tab2:
+        render_batch_tab(tokenizer, model, threshold, device)
+
+    with tab3:
+        render_dashboard_tab()
+
+    with tab4:
+        render_heatmap_tab()
+
+if __name__ == "__main__":
+    main()
+
